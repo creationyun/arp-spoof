@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
 	
 	// open my network interface
 	char errbuf[PCAP_ERRBUF_SIZE];
-	pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+	pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1, errbuf);
 	if (handle == nullptr) {
 		fprintf(stderr, "Error: could not open device %s. (%s)\n", dev, errbuf);
 		return -1;
@@ -86,79 +86,120 @@ int main(int argc, char* argv[]) {
 	// and capture on loop
 	//
 	for (int i = 0; i < num_host_pairs; i++) {
-	
-		//// send broadcast packet to find one of sender's MAC
-		int res = send_arp_packet(
-			handle,
-			MacAddr("ff:ff:ff:ff:ff:ff"),
-			my_mac,
-			ARP_OP_REQUEST,
-			my_mac,
-			my_ip,
-			MacAddr("00:00:00:00:00:00"),
-			sender_ip[i]
-		);
+		int j;
 
-		// check error
-		if (res != 0) {
-			return -1;
-		} else {
-			printf("Sent ARP request packet to the sender %d.\n", i);
-			printf("Getting ARP reply packet... ");
-		}
-
-		// capturing for getting normal ARP reply packet
-		res = recv_arp_packet(
-			handle,
-			ARP_OP_REPLY,
-			sender_mac[i],
-			sender_ip[i],
-			my_mac,
-			my_ip
-		);
-		
-		// check error
-		if (res != 0) {
-			return -1;
-		} else {
-			printf("OK!\n");
+		// check if sender IP's mac is already exists
+		// assume: index j (0 ~ i-1) points already resolved IP that exists
+		for (j = 0; j < i; j++) {
+			// compare with previous sender
+			if (sender_ip[i] == sender_ip[j]) {
+				sender_mac[i] = sender_mac[j];
+				printf("Sender %d already has a MAC address.\n", i);
+				break;
+			}
+			// compare with previous target
+			if (sender_ip[i] == target_ip[j]) {
+				sender_mac[i] = target_mac[j];
+				printf("Sender %d already has a MAC address.\n", i);
+				break;
+			}
 		}
 		
-		//// send broadcast packet to find one of target's MAC
-		res = send_arp_packet(
-			handle,
-			MacAddr("ff:ff:ff:ff:ff:ff"),
-			my_mac,
-			ARP_OP_REQUEST,
-			my_mac,
-			my_ip,
-			MacAddr("00:00:00:00:00:00"),
-			target_ip[i]
-		);
+		// if sender IP's mac does not exist
+		if (i == j) {
+			//// send broadcast packet to find one of sender's MAC
+			int res = send_arp_packet(
+				handle,
+				MacAddr("ff:ff:ff:ff:ff:ff"),
+				my_mac,
+				ARP_OP_REQUEST,
+				my_mac,
+				my_ip,
+				MacAddr("00:00:00:00:00:00"),
+				sender_ip[i]
+			);
 
-		// check error
-		if (res != 0) {
-			return -1;
-		} else {
-			printf("Sent ARP request packet to the target %d.\n", i);
-			printf("Getting ARP reply packet... ");
+			// check error
+			if (res != 0) {
+				return -1;
+			} else {
+				printf("Sent ARP request packet to the sender %d.\n", i);
+				printf("Getting ARP reply packet... ");
+			}
+
+			// capturing for getting normal ARP reply packet
+			res = recv_arp_packet(
+				handle,
+				ARP_OP_REPLY,
+				sender_mac[i],
+				sender_ip[i],
+				my_mac,
+				my_ip
+			);
+
+			// check error
+			if (res != 0) {
+				return -1;
+			} else {
+				printf("OK!\n");
+			}
 		}
-
-		// capturing for getting normal ARP reply packet
-		res = recv_arp_packet(
-			handle,
-			ARP_OP_REPLY,
-			target_mac[i],
-			target_ip[i],
-			my_mac,
-			my_ip
-		);
 		
-		// check error
-		if (res != 0) {
-			return -1;
-		} else {
-			printf("OK!\n");
+		// check if target IP's mac is already exists
+		// assume: index j (0 ~ i-1) points already resolved IP that exists
+		for (j = 0; j < i; j++) {
+			// compare with previous sender
+			if (target_ip[i] == sender_ip[j]) {
+				printf("Target %d already has a MAC address.\n", i);
+				target_mac[i] = sender_mac[j];
+				break;
+			}
+			// compare with previous target
+			if (target_ip[i] == target_ip[j]) {
+				printf("Target %d already has a MAC address.\n", i);
+				target_mac[i] = target_mac[j];
+				break;
+			}
+		}
+		
+		// if target IP's mac does not exist
+		if (i == j) {
+			//// send broadcast packet to find one of target's MAC
+			int res = send_arp_packet(
+				handle,
+				MacAddr("ff:ff:ff:ff:ff:ff"),
+				my_mac,
+				ARP_OP_REQUEST,
+				my_mac,
+				my_ip,
+				MacAddr("00:00:00:00:00:00"),
+				target_ip[i]
+			);
+
+			// check error
+			if (res != 0) {
+				return -1;
+			} else {
+				printf("Sent ARP request packet to the target %d.\n", i);
+				printf("Getting ARP reply packet... ");
+			}
+
+			// capturing for getting normal ARP reply packet
+			res = recv_arp_packet(
+				handle,
+				ARP_OP_REPLY,
+				target_mac[i],
+				target_ip[i],
+				my_mac,
+				my_ip
+			);
+			
+			// check error
+			if (res != 0) {
+				return -1;
+			} else {
+				printf("OK!\n");
+			}
 		}
 	}
 	
@@ -382,6 +423,8 @@ void get_my_ipv4_addr(const char *dev, IPv4Addr &uc_IP) {
 }
 
 int get_mtu(const char *dev) {
+
+	/* Get MTU value of interface */
 	int fd;
 	struct ifreq ifr;
 
@@ -424,7 +467,7 @@ int send_arp_packet(pcap_t* handle, MacAddr dst_mac, MacAddr src_mac, uint16_t o
 		fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
 		return -1;
 	}
-	
+
 	return 0;
 }
 
